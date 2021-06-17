@@ -45,7 +45,7 @@ abstract class Response {
 class ResponseFuture<R> extends DelegatingFuture<R>
     with _ResponseMixin<dynamic, R> {
   @override
-  final ClientCall<dynamic, R> _call;
+  final ClientCall _call;
 
   static R _ensureOnlyOneResponse<R>(R? previous, R element) {
     if (previous != null) {
@@ -59,43 +59,42 @@ class ResponseFuture<R> extends DelegatingFuture<R>
     return value;
   }
 
-  ResponseFuture(this._call)
-      : super(_call.response
+  ResponseFuture(ClientCall<dynamic, R> call)
+      : _call = call,
+        super(call.response
             .fold<R?>(null, _ensureOnlyOneResponse)
             .then(_ensureOneResponse));
 
-  static ResponseFuture<R> _wrap<R>(Future<R> future) {
-    return ResponseFuture(
-      _unwrap(future),
-    );
-  }
-
-  static ClientCall<dynamic, R> _unwrap<R>(Future future) => future
-          is ResponseFuture<R>
-      ? future._call
-      : throw ArgumentError.value(future, 'future', 'Must be ResponseFuture');
+  ResponseFuture._future(ClientCall<dynamic, R> call, Future<R> future)
+      : _call = call,
+        super(future);
 
   @override
   ResponseFuture<S> then<S>(FutureOr<S> Function(R p1) onValue,
       {Function? onError}) {
-    return _wrap(super.then(onValue, onError: onError));
+    return _wrap(
+        super.then(onValue, onError: onError), _call as ClientCall<dynamic, S>);
   }
 
   @override
   ResponseFuture<R> catchError(Function onError,
       {bool Function(Object error)? test}) {
-    return _wrap(super.catchError(onError, test: test));
+    return _wrap(super.catchError(onError, test: test), _call);
   }
 
   @override
   ResponseFuture<R> whenComplete(FutureOr Function() action) {
-    return _wrap(super.whenComplete(action));
+    return _wrap(super.whenComplete(action), _call);
   }
 
   @override
   ResponseFuture<R> timeout(Duration timeLimit,
       {FutureOr<R> Function()? onTimeout}) {
-    return _wrap(super.timeout(timeLimit, onTimeout: onTimeout));
+    return _wrap(super.timeout(timeLimit, onTimeout: onTimeout), _call);
+  }
+
+  static ResponseFuture<R> _wrap<R>(Future<R> future, ClientCall call) {
+    return ResponseFuture._future(call as ClientCall<dynamic, R>, future);
   }
 }
 
@@ -121,5 +120,5 @@ abstract class _ResponseMixin<Q, R> implements Response {
   Future<Map<String, String>> get trailers => _call.trailers;
 
   @override
-  Future<void> cancel() => _call?.cancel();
+  Future<void> cancel() => _call.cancel();
 }

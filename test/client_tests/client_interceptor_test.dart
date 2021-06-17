@@ -32,12 +32,48 @@ class FakeInterceptor implements ClientInterceptor {
   ResponseFuture<R> interceptUnary<Q, R>(ClientMethod<Q, R> method, Q request,
       CallOptions options, ClientUnaryInvoker<Q, R> invoker) {
     _invocations.add(InterceptorInvocation(_id, ++_unary, _streaming));
+    return invoker(method, request, _inject(options));
+  }
+
+  @override
+  ResponseStream<R> interceptStreaming<Q, R>(
+      ClientMethod<Q, R> method,
+      Stream<Q> requests,
+      CallOptions options,
+      ClientStreamingInvoker<Q, R> invoker) {
+    _invocations.add(InterceptorInvocation(_id, _unary, ++_streaming));
+
+    return invoker(method, requests, _inject(options));
+  }
+
+  CallOptions _inject(CallOptions options) {
+    return options.mergedWith(CallOptions(metadata: {
+      'x-interceptor': _invocations.map((i) => i.toString()).join(', '),
+    }));
+  }
+
+  static void tearDown() {
+    _invocations.clear();
+  }
+}
+
+class ChainInterceptor implements ClientInterceptor {
+  final int _id;
+  int _unary = 0;
+  int _streaming = 0;
+
+  static final _invocations = <InterceptorInvocation>[];
+
+  ChainInterceptor(this._id);
+
+  @override
+  ResponseFuture<R> interceptUnary<Q, R>(ClientMethod<Q, R> method, Q request,
+      CallOptions options, ClientUnaryInvoker<Q, R> invoker) {
+    _invocations.add(InterceptorInvocation(_id, ++_unary, _streaming));
     return invoker(method, request, _inject(options))
-        .then((foo) async => foo)
+        .then((foo) => foo)
         .whenComplete(() => 'complete')
-        .then((bar) => bar)
-        .catchError((e, s) => print('$e at $s'))
-        .timeout(Duration(seconds: 5));
+        .then((bar) => bar);
   }
 
   @override
@@ -205,6 +241,38 @@ void main() {
       },
       serverHandlers: [handleRequest, handleRequest, handleRequest],
       doneHandler: handleDone,
+    );
+
+    harness.tearDown();
+    FakeInterceptor.tearDown();
+  });
+
+  test('single unary interceptor with chain', () async {
+    final harness = ClientHarness()
+      ..interceptors = [ChainInterceptor(1)]
+      ..setUp();
+
+    const requestValue = 17;
+    const responseValue = 19;
+
+    void handleRequest(StreamMessage message) {
+      final data = validateDataMessage(message);
+      expect(mockDecode(data.data), requestValue);
+
+      harness
+        ..sendResponseHeader()
+        ..sendResponseValue(responseValue)
+        ..sendResponseTrailer();
+    }
+
+    await harness.runTest(
+      clientCall: harness.client.unary(requestValue),
+      expectedResult: responseValue,
+      expectedPath: '/Test/Unary',
+      expectedCustomHeaders: {
+        'x-interceptor': '{id: 1, unary: 1, streaming: 0}'
+      },
+      serverHandlers: [handleRequest],
     );
 
     harness.tearDown();
