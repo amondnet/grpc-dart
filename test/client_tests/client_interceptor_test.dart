@@ -32,9 +32,7 @@ class FakeInterceptor implements ClientInterceptor {
   ResponseFuture<R> interceptUnary<Q, R>(ClientMethod<Q, R> method, Q request,
       CallOptions options, ClientUnaryInvoker<Q, R> invoker) {
     _invocations.add(InterceptorInvocation(_id, ++_unary, _streaming));
-    return ResponseFuture.wrap(
-            Future.delayed(Duration(seconds: 1), () => 'dummy'))
-        .then((_) => invoker(method, request, _inject(options)))
+    return invoker(method, request, _inject(options))
         .then((foo) async => foo)
         .whenComplete(() => 'complete')
         .then((bar) => bar)
